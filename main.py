@@ -9,21 +9,20 @@ from mouse._mouse_event import UP, ButtonEvent, MoveEvent, WheelEvent
 
 from background import background
 
-coloredlogs.install(level='DEBUG')
+coloredlogs.install(level="DEBUG")
 logger = logging.getLogger(__name__)
 
 
-class Hotkey():
-
+class Hotkey:
     def __init__(self, hotkey, callback, args=()):
         self.hotkey = hotkey
         self.callback = callback
         self.args = args
 
 
-class InputController():
-
+class InputController:
     def __init__(self):
+
         self.events = []
         self.hotkeys = []
 
@@ -32,6 +31,8 @@ class InputController():
         # To remove hotkey keys
         self.first_event_ix = None
         self.last_event_ix = None
+
+        self.base_keys = "windows+ctrl"
 
     def reset_records(self):
         del self.events
@@ -90,11 +91,11 @@ class InputController():
         self.add_hotkey(stop_hotkey)
 
         # To remove hotkey keys
-        self.first_event_ix = len(start_keys.split('+')) + 1
+        self.first_event_ix = len(start_keys.split("+")) + 1
         self.last_event_ix = -(len(stop_keys.split("+")) + 1)
 
     def _trim_event(self):
-        self.events = self.events[self.first_event_ix:self.last_event_ix]
+        self.events = self.events[self.first_event_ix : self.last_event_ix]
 
     def _stop_recording(self):
         keyboard.unhook(self.keyboard_hook)
@@ -139,28 +140,26 @@ class InputController():
         # For hotkey management
         keyboard.restore_modifiers(state)
 
-    def _play_record(self):
-        self._play_keyboard()
-        self._play_mouse()
-
     def play_record(self):
-        logger.info("Kayıt oynatılıyor")
+        if self.events:
+            logger.info("Kayıt oynatılıyor")
+            self._play()
+            logger.info("Kaydı oynatma tamamlandı")
 
-        self._play()
+            return True
+        else:
+            return False
 
-        logger.info("Kaydı oynatma tamamlandı")
+    @background
+    def play_record_infinite(self):
+        while self.play_record():
+            pass
 
     def wait_keyboard(self):
         keyboard.wait()
 
     def _add_hotkey(self, hotkey):
-        keyboard.add_hotkey(
-            hotkey.hotkey,
-            hotkey.callback,
-            hotkey.args,
-            suppress=True,
-            trigger_on_release=True
-        )
+        keyboard.add_hotkey(hotkey.hotkey, hotkey.callback, hotkey.args, suppress=True, trigger_on_release=True)
 
     def add_hotkey(self, hotkey: Hotkey):
         self.hotkeys.append(hotkey)
@@ -170,11 +169,16 @@ class InputController():
         for hotkey in hotkeys:
             self.add_hotkey(hotkey)
 
+    def create_hotkey(self, key_string):
+        return self.base_keys + "+" + key_string
+
 
 controller = InputController()
-controller.record_with_hotkey("windows+shift+r", "windows+shift+s")
-controller.add_hotkeys([
-    Hotkey("windows+shift+p", controller.play_record),
-    Hotkey("windows+shift+e", exit)
-])
+controller.record_with_hotkey(controller.create_hotkey("r"), controller.create_hotkey("s"))
+controller.add_hotkeys(
+    [
+        Hotkey(controller.create_hotkey("p"), controller.play_record_infinite),
+        Hotkey(controller.create_hotkey("e"), exit),
+    ]
+)
 controller.wait_keyboard()
