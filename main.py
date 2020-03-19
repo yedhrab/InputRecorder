@@ -4,20 +4,20 @@ import time
 import coloredlogs
 import keyboard
 import mouse
+from background import background
 from keyboard._keyboard_event import KEY_DOWN, KeyboardEvent
 from mouse._mouse_event import UP, ButtonEvent, MoveEvent, WheelEvent
-
-from background import background
 
 coloredlogs.install(level="DEBUG")
 logger = logging.getLogger(__name__)
 
 
 class Hotkey:
-    def __init__(self, hotkey, callback, args=()):
+    def __init__(self, hotkey, callback, args=(), trigger="pressed"):
         self.hotkey = hotkey
         self.callback = callback
-        self.args = args
+        self.args = ()
+        self.trigger = trigger
 
 
 class InputController:
@@ -25,6 +25,9 @@ class InputController:
 
         self.events = []
         self.hotkeys = []
+
+        self.keyboard_hook = None
+        self.mouse_hook = None
 
         self.recording = False
 
@@ -36,7 +39,7 @@ class InputController:
 
     def reset_records(self):
         del self.events
-        self.events = Event()
+        self.events = []
 
     def add_event(self, event):
         self.events.append(event)
@@ -47,23 +50,23 @@ class InputController:
     def _record_mouse(self):
         self.mouse_hook = mouse.hook(self.add_event)
 
-        logger.info("Mouse kaydı başlatıldı")
+        logger.debug("Mouse kaydı başlatıldı")
 
     @background
     def _record_keyboard(self):
         self.keyboard_hook = keyboard.hook(self.add_event)
 
-        logger.info("Klavye kaydı başlatıldı")
+        logger.debug("Klavye kaydı başlatıldı")
 
     @background
     def _play_mouse(self):
-        logger.info("Mouse kaydı oynatılıyor")
+        logger.debug("Mouse kaydı oynatılıyor")
 
         mouse.play(self.events.mouse_events)
 
     @background
     def _play_keyboard(self):
-        logger.info("Klavye kaydı oynatılıyor")
+        logger.debug("Klavye kaydı oynatılıyor")
 
         keyboard.play(self.events.keyboard_events)
 
@@ -71,49 +74,44 @@ class InputController:
         self._record_keyboard()
         self._record_mouse()
 
-        self.recording = True
+        # Wait until all hook completed
+        # time.sleep(1)
 
-        logger.info("Kayıt başlatıldı")
+        self.recording = True
 
     def record(self):
         # Avoid multiple recording
         if self.recording:
-            logger.warning("Zaten kayıt yapılmakta")
-            return
+            self._stop_recording()
+            self._trim_event()
+            logger.info("Kayıt tamamlandı")
+        else:
+            self._record()
+            logger.info("Kayıt başlatıldı")
 
-        self._record()
+    def record_with_hotkey(self, hotkey: str):
+        hotkey_record = Hotkey(hotkey, self.record)
 
-    def record_with_hotkey(self, start_keys: str, stop_keys: str):
-        start_hotkey = Hotkey(start_keys, self.record)
-        stop_hotkey = Hotkey(stop_keys, self.stop_recording)
+        self.add_hotkey(hotkey_record)
 
-        self.add_hotkey(start_hotkey)
-        self.add_hotkey(stop_hotkey)
-
-        # To remove hotkey keys
-        self.first_event_ix = len(start_keys.split("+")) + 1
-        self.last_event_ix = -(len(stop_keys.split("+")) + 1)
+        # Remove selected hotkeys
+        self.first_event_ix = len(hotkey.split("+")) + 2
+        self.last_event_ix = -len(hotkey.split("+"))
 
     def _trim_event(self):
         self.events = self.events[self.first_event_ix : self.last_event_ix]
+        logger.debug(f"Removed {self.events}")
 
     def _stop_recording(self):
         keyboard.unhook(self.keyboard_hook)
         mouse.unhook(self.mouse_hook)
 
+        # Reset control flags
+        self.keyboard_hook = None
+        self.mouse_hook = None
         self.recording = False
 
-        logger.info("Kayıt tamamlandı")
-
-    def stop_recording(self):
-        if not self.recording:
-            logger.warning("Aktif kayıt bulunamadı")
-            return
-
-        self._stop_recording()
-        self._trim_event()
-
-    def _play(self, speed_factor=1.0, include_clicks=True, include_moves=True, include_wheel=True):
+    def _play(self, speed_factor=7.0, include_clicks=True, include_moves=True, include_wheel=True):
         # For hotkey management
         state = keyboard.stash_state()
 
@@ -142,24 +140,33 @@ class InputController:
 
     def play_record(self):
         if self.events:
+            time.sleep(0.30)
             logger.info("Kayıt oynatılıyor")
-            self._play()
-            logger.info("Kaydı oynatma tamamlandı")
 
+            self._play()
+
+            logger.info("Kaydı oynatma tamamlandı")
             return True
         else:
+            logger.warning("Aktif kayıt bulunamadı")
             return False
 
     @background
     def play_record_infinite(self):
         while self.play_record():
-            pass
+            time.sleep(0.30)
 
     def wait_keyboard(self):
         keyboard.wait()
 
     def _add_hotkey(self, hotkey):
-        keyboard.add_hotkey(hotkey.hotkey, hotkey.callback, hotkey.args, suppress=True, trigger_on_release=True)
+        keyboard.add_hotkey(
+            hotkey.hotkey,
+            hotkey.callback,
+            hotkey.args,
+            suppress=False,
+            trigger_on_release=hotkey.trigger == "release",
+        )
 
     def add_hotkey(self, hotkey: Hotkey):
         self.hotkeys.append(hotkey)
@@ -174,11 +181,6 @@ class InputController:
 
 
 controller = InputController()
-controller.record_with_hotkey(controller.create_hotkey("r"), controller.create_hotkey("s"))
-controller.add_hotkeys(
-    [
-        Hotkey(controller.create_hotkey("p"), controller.play_record_infinite),
-        Hotkey(controller.create_hotkey("e"), exit),
-    ]
-)
+controller.record_with_hotkey("win+f9")
+controller.add_hotkeys([Hotkey("win+f10", controller.play_record), Hotkey("win+f7", exit)])
 controller.wait_keyboard()
